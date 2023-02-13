@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	amConfig "github.com/prometheus/alertmanager/config"
 	"net/url"
 	"strings"
 
 	"github.com/grafana/alerting/receivers"
-	"github.com/grafana/alerting/templates"
 )
 
 type Config struct {
@@ -25,6 +25,7 @@ type Config struct {
 	MentionChannel string                          `json:"mentionChannel,omitempty" yaml:"mentionChannel,omitempty"`
 	MentionUsers   receivers.CommaSeparatedStrings `json:"mentionUsers,omitempty" yaml:"mentionUsers,omitempty"`
 	MentionGroups  receivers.CommaSeparatedStrings `json:"mentionGroups,omitempty" yaml:"mentionGroups,omitempty"`
+	IncludeFields  bool                            `json:"includeFields,omitempty" yaml:"includeFields,omitempty"`
 }
 
 func ValidateConfig(factoryConfig receivers.FactoryConfig) (Config, error) {
@@ -64,10 +65,10 @@ func ValidateConfig(factoryConfig receivers.FactoryConfig) (Config, error) {
 		settings.Username = "Grafana"
 	}
 	if settings.Text == "" {
-		settings.Text = templates.DefaultMessageEmbed
+		settings.Text = amConfig.DefaultSlackConfig.Text
 	}
 	if settings.Title == "" {
-		settings.Title = templates.DefaultMessageTitleEmbed
+		settings.Title = amConfig.DefaultSlackConfig.Title
 	}
 
 	return settings, nil

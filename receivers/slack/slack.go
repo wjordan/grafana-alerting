@@ -290,9 +290,37 @@ func handleSlackJSONResponse(resp *http.Response, logger logging.Logger) (string
 
 func (sn *Notifier) createSlackMessage(ctx context.Context, alerts []*types.Alert) (*slackMessage, error) {
 	var tmplErr error
-	tmpl, _ := templates.TmplText(ctx, sn.tmpl, alerts, sn.log, &tmplErr)
+	tmpl, data := templates.TmplText(ctx, sn.tmpl, alerts, sn.log, &tmplErr)
 
 	ruleURL := receivers.JoinURLPath(sn.tmpl.ExternalURL.String(), "/alerting/list", sn.log)
+
+	// Link title to panel or alert rule if either is available.
+	if len(data.Alerts) > 0 {
+		if data.Alerts[0].PanelURL != "" {
+			ruleURL = data.Alerts[0].PanelURL
+		} else if data.Alerts[0].GeneratorURL != "" {
+			ruleURL = data.Alerts[0].GeneratorURL
+		}
+	}
+
+	fields := make([]amConfig.SlackField, 0)
+	// Append firing-alert Values as fields.
+	if sn.settings.IncludeFields {
+		short := true
+		for _, alert := range data.Alerts.Firing() {
+			for name, value := range alert.Values {
+				valString := fmt.Sprintf("%.3f", value)
+				if value == float64(int64(value)) {
+					valString = fmt.Sprintf("%d", int64(value))
+				}
+				fields = append(fields, amConfig.SlackField{
+					Title: name,
+					Value: valString,
+					Short: &short,
+				})
+			}
+		}
+	}
 
 	title, truncated := receivers.TruncateInRunes(tmpl(sn.settings.Title), slackMaxTitleLenRunes)
 	if truncated {
@@ -308,8 +336,6 @@ func (sn *Notifier) createSlackMessage(ctx context.Context, alerts []*types.Aler
 		Username:  tmpl(sn.settings.Username),
 		IconEmoji: tmpl(sn.settings.IconEmoji),
 		IconURL:   tmpl(sn.settings.IconURL),
-		// TODO: We should use the Block Kit API instead:
-		// https://api.slack.com/messaging/composing/layouts#when-to-use-attachments
 		Attachments: []attachment{
 			{
 				Color:      receivers.GetAlertStatusColor(types.Alerts(alerts...).Status()),
@@ -320,7 +346,7 @@ func (sn *Notifier) createSlackMessage(ctx context.Context, alerts []*types.Aler
 				Ts:         time.Now().Unix(),
 				TitleLink:  ruleURL,
 				Text:       tmpl(sn.settings.Text),
-				Fields:     nil, // TODO. Should be a config.
+				Fields:     fields,
 			},
 		},
 	}
