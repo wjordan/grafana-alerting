@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -18,29 +17,32 @@ import (
 	"github.com/grafana/alerting/templates"
 )
 
-func TestTelegramNotifier(t *testing.T) {
+func TestNotify(t *testing.T) {
 	tmpl := templates.ForTests(t)
-	images := images2.NewFakeImageStoreWithFile(t, 2)
+	images := images2.NewFakeProviderWithFile(t, 2)
 	externalURL, err := url.Parse("http://localhost")
 	require.NoError(t, err)
 	tmpl.ExternalURL = externalURL
 
 	cases := []struct {
-		name         string
-		settings     string
-		alerts       []*types.Alert
-		expMsg       map[string]string
-		expInitError string
-		expMsgError  error
+		name        string
+		settings    Config
+		alerts      []*types.Alert
+		expMsg      map[string]string
+		expMsgError error
 	}{
 		{
 			name: "A single alert with default template",
-			settings: `{
-				"bottoken": "abcdefgh0123456789",
-				"chatid": "someid",
-				"parse_mode": "markdown",
-				"disable_notifications": true
-			}`,
+			settings: Config{
+				BotToken:              "abcdefgh0123456789",
+				ChatID:                "someid",
+				MessageThreadID:       "threadid",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             "Markdown",
+				DisableWebPagePreview: true,
+				ProtectContent:        true,
+				DisableNotifications:  true,
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -51,18 +53,22 @@ func TestTelegramNotifier(t *testing.T) {
 				},
 			},
 			expMsg: map[string]string{
-				"parse_mode":           "Markdown",
-				"text":                 "**Firing**\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: a URL\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
-				"disable_notification": "true",
+				"message_thread_id":        "threadid",
+				"parse_mode":               "Markdown",
+				"text":                     "**Firing**\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: a URL\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
+				"disable_web_page_preview": "true",
+				"protect_content":          "true",
+				"disable_notification":     "true",
 			},
 			expMsgError: nil,
 		}, {
 			name: "Multiple alerts with custom template",
-			settings: `{
-				"bottoken": "abcdefgh0123456789",
-				"chatid": "someid",
-				"message": "__Custom Firing__\n{{len .Alerts.Firing}} Firing\n{{ template \"__text_alert_list\" .Alerts.Firing }}"
-			}`,
+			settings: Config{
+				BotToken:  "abcdefgh0123456789",
+				ChatID:    "someid",
+				Message:   "__Custom Firing__\n{{len .Alerts.Firing}} Firing\n{{ template \"__text_alert_list\" .Alerts.Firing }}",
+				ParseMode: DefaultTelegramParseMode,
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -84,11 +90,12 @@ func TestTelegramNotifier(t *testing.T) {
 			expMsgError: nil,
 		}, {
 			name: "Truncate long message",
-			settings: `{
-				"bottoken": "abcdefgh0123456789",
-				"chatid": "someid",
-				"message": "{{ .CommonLabels.alertname }}"
-			}`,
+			settings: Config{
+				BotToken:  "abcdefgh0123456789",
+				ChatID:    "someid",
+				Message:   "{{ .CommonLabels.alertname }}",
+				ParseMode: DefaultTelegramParseMode,
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -101,52 +108,26 @@ func TestTelegramNotifier(t *testing.T) {
 				"text":       strings.Repeat("1", 4096-1) + "…",
 			},
 			expMsgError: nil,
-		}, {
-			name:         "Error in initing",
-			settings:     `{}`,
-			expInitError: `could not find Bot Token in settings`,
-		}, {
-			name: "Invalid parse mode",
-			settings: `{ 
-				"bottoken": "abcdefgh0123456789",
-				"chatid": "someid",
-				"parse_mode": "test"
-			}`,
-			expInitError: "unknown parse_mode, must be Markdown, MarkdownV2, HTML or None",
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			settingsJSON := json.RawMessage(c.settings)
-			require.NoError(t, err)
-			secureSettings := make(map[string][]byte)
-
 			notificationService := receivers.MockNotificationService()
 
-			fc := receivers.FactoryConfig{
-				Config: &receivers.NotificationChannelConfig{
-					Name:           "telegram_tests",
-					Type:           "telegram",
-					Settings:       settingsJSON,
-					SecureSettings: secureSettings,
+			n := &Notifier{
+				Base: &receivers.Base{
+					Name:                  "",
+					Type:                  "",
+					UID:                   "",
+					DisableResolveMessage: false,
 				},
-				ImageStore:          images,
-				NotificationService: notificationService,
-				DecryptFunc: func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
-					return fallback
-				},
-				Template: tmpl,
-				Logger:   &logging.FakeLogger{},
+				log:      &logging.FakeLogger{},
+				ns:       notificationService,
+				tmpl:     tmpl,
+				settings: c.settings,
+				images:   images,
 			}
-
-			n, err := New(fc)
-			if c.expInitError != "" {
-				require.Error(t, err)
-				require.Equal(t, c.expInitError, err.Error())
-				return
-			}
-			require.NoError(t, err)
 
 			ctx := notify.WithGroupKey(context.Background(), "alertname")
 			ctx = notify.WithGroupLabels(ctx, model.LabelSet{"alertname": ""})

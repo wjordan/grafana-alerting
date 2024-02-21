@@ -1,10 +1,10 @@
 package telegram
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/grafana/alerting/receivers"
@@ -18,20 +18,23 @@ const DefaultTelegramParseMode = "HTML"
 var SupportedParseMode = map[string]string{"Markdown": "Markdown", "MarkdownV2": "MarkdownV2", DefaultTelegramParseMode: "HTML", "None": ""}
 
 type Config struct {
-	BotToken             string `json:"bottoken,omitempty" yaml:"bottoken,omitempty"`
-	ChatID               string `json:"chatid,omitempty" yaml:"chatid,omitempty"`
-	Message              string `json:"message,omitempty" yaml:"message,omitempty"`
-	ParseMode            string `json:"parse_mode,omitempty" yaml:"parse_mode,omitempty"`
-	DisableNotifications bool   `json:"disable_notifications,omitempty" yaml:"disable_notifications,omitempty"`
+	BotToken              string `json:"bottoken,omitempty" yaml:"bottoken,omitempty"`
+	ChatID                string `json:"chatid,omitempty" yaml:"chatid,omitempty"`
+	MessageThreadID       string `json:"message_thread_id,omitempty" yaml:"message_thread_id,omitempty"`
+	Message               string `json:"message,omitempty" yaml:"message,omitempty"`
+	ParseMode             string `json:"parse_mode,omitempty" yaml:"parse_mode,omitempty"`
+	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty" yaml:"disable_web_page_preview,omitempty"`
+	ProtectContent        bool   `json:"protect_content,omitempty" yaml:"protect_content,omitempty"`
+	DisableNotifications  bool   `json:"disable_notifications,omitempty" yaml:"disable_notifications,omitempty"`
 }
 
-func ValidateConfig(fc receivers.FactoryConfig) (Config, error) {
+func NewConfig(jsonData json.RawMessage, decryptFn receivers.DecryptFunc) (Config, error) {
 	settings := Config{}
-	err := json.Unmarshal(fc.Config.Settings, &settings)
+	err := json.Unmarshal(jsonData, &settings)
 	if err != nil {
 		return settings, fmt.Errorf("failed to unmarshal settings: %w", err)
 	}
-	settings.BotToken = fc.DecryptFunc(context.Background(), fc.Config.SecureSettings, "bottoken", settings.BotToken)
+	settings.BotToken = decryptFn("bottoken", settings.BotToken)
 	if settings.BotToken == "" {
 		return settings, errors.New("could not find Bot Token in settings")
 	}
@@ -40,6 +43,18 @@ func ValidateConfig(fc receivers.FactoryConfig) (Config, error) {
 	}
 	if settings.Message == "" {
 		settings.Message = templates.DefaultMessageEmbed
+	}
+
+	var messageThreadID int
+	if settings.MessageThreadID != "" {
+		messageThreadID, err = strconv.Atoi(settings.MessageThreadID)
+		if err != nil {
+			return settings, errors.New("message thread id must be an integer")
+		}
+
+		if messageThreadID != int(int32(messageThreadID)) {
+			return settings, errors.New("message thread id must be an int32")
+		}
 	}
 	// if field is missing, then we fall back to the previous default: HTML
 	if settings.ParseMode == "" {

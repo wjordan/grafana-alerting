@@ -6,12 +6,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/alerting/receivers"
-	testing2 "github.com/grafana/alerting/receivers/testing"
+	receiversTesting "github.com/grafana/alerting/receivers/testing"
 	"github.com/grafana/alerting/templates"
 )
 
-func TestValidateConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	cases := []struct {
 		name              string
 		settings          string
@@ -185,24 +184,29 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "Extracts all fields",
-			secureSettings: map[string][]byte{
-				"url": []byte("http://localhost"),
-			},
-			settings: `{
-				"endpointUrl" : "test-endpointUrl",
-				"agent_id" : "test-agent_id",
-				"corp_id" : "test-corp_id",
-				"secret" : "test-secret",
-				"msgtype" : "markdown",
-				"message" : "test-message",
-				"title" : "test-title",
-				"touser" : "test-touser"
-			}`,
+			name:     "Extracts all fields",
+			settings: FullValidConfigForTesting,
 			expectedConfig: Config{
 				Channel:     DefaultChannelType,
 				EndpointURL: "test-endpointUrl",
-				URL:         "http://localhost",
+				URL:         "test-url",
+				AgentID:     "test-agent_id",
+				CorpID:      "test-corp_id",
+				Secret:      "test-secret",
+				MsgType:     "markdown",
+				Message:     "test-message",
+				Title:       "test-title",
+				ToUser:      "test-touser",
+			},
+		},
+		{
+			name:           "Extracts all fields + override from secrets",
+			secureSettings: receiversTesting.ReadSecretsJSONForTesting(FullValidSecretsForTesting),
+			settings:       FullValidConfigForTesting,
+			expectedConfig: Config{
+				Channel:     DefaultChannelType,
+				EndpointURL: "test-endpointUrl",
+				URL:         "test-url-secret",
 				AgentID:     "test-agent_id",
 				CorpID:      "test-corp_id",
 				Secret:      "test-secret",
@@ -216,14 +220,7 @@ func TestValidateConfig(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m := &receivers.NotificationChannelConfig{
-				Settings:       json.RawMessage(c.settings),
-				SecureSettings: c.secureSettings,
-			}
-			fc, err := testing2.NewFactoryConfigForValidateConfigTesting(t, m)
-			require.NoError(t, err)
-
-			actual, err := ValidateConfig(fc)
+			actual, err := NewConfig(json.RawMessage(c.settings), receiversTesting.DecryptForTesting(c.secureSettings))
 
 			if c.expectedInitError != "" {
 				require.ErrorContains(t, err, c.expectedInitError)

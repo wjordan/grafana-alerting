@@ -29,20 +29,29 @@ import (
 
 var appVersion = fmt.Sprintf("%d.0.0", rand.Uint32())
 
-func TestSlackIncomingWebhook(t *testing.T) {
+func TestNotify_IncomingWebhook(t *testing.T) {
 	tests := []struct {
 		name            string
 		alerts          []*types.Alert
 		expectedMessage *slackMessage
 		expectedError   string
-		settings        string
+		settings        Config
 	}{{
 		name: "Message is sent",
-		settings: `{
-			"icon_emoji": ":emoji:",
-			"recipient": "#test",
-			"url": "https://example.com/hooks/xxxx"
-		}`,
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            "https://example.com/hooks/xxxx",
+			Token:          "",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -68,11 +77,20 @@ func TestSlackIncomingWebhook(t *testing.T) {
 		},
 	}, {
 		name: "Message is sent with image URL",
-		settings: `{
-				"icon_emoji": ":emoji:",
-				"recipient": "#test",
-				"url": "https://example.com/hooks/xxxx"
-			}`,
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            "https://example.com/hooks/xxxx",
+			Token:          "",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -99,11 +117,20 @@ func TestSlackIncomingWebhook(t *testing.T) {
 		},
 	}, {
 		name: "Message is sent and image on local disk is ignored",
-		settings: `{
-				"icon_emoji": ":emoji:",
-				"recipient": "#test",
-				"url": "https://example.com/hooks/xxxx"
-			}`,
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            "https://example.com/hooks/xxxx",
+			Token:          "",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -171,21 +198,30 @@ func TestSlackIncomingWebhook(t *testing.T) {
 	}
 }
 
-func TestSlackPostMessage(t *testing.T) {
+func TestNotify_PostMessage(t *testing.T) {
 	tests := []struct {
 		name            string
 		alerts          []*types.Alert
 		expectedMessage *slackMessage
 		expectedReplies []interface{} // can contain either slackMessage or map[string]struct{} for multipart/form-data
 		expectedError   string
-		settings        string
+		settings        Config
 	}{{
 		name: "Message is sent",
-		settings: `{
-			"icon_emoji": ":emoji:",
-			"recipient": "#test",
-			"token": "1234"
-		}`,
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            APIURL,
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -210,13 +246,153 @@ func TestSlackPostMessage(t *testing.T) {
 			},
 		},
 	}, {
+		name: "Message is sent with a single alert and a GeneratorURL",
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            APIURL,
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
+		alerts: []*types.Alert{{
+			Alert: model.Alert{
+				Labels:       model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
+				Annotations:  model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
+				GeneratorURL: "http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test",
+			},
+		}},
+		expectedMessage: &slackMessage{
+			Channel:   "#test",
+			Username:  "Grafana",
+			IconEmoji: ":emoji:",
+			Attachments: []attachment{
+				{
+					Title:      "[FIRING:1]  (val1)",
+					TitleLink:  "http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test",
+					Text:       "**Firing**\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
+					Fallback:   "[FIRING:1]  (val1)",
+					Fields:     nil,
+					Footer:     "Grafana v" + appVersion,
+					FooterIcon: "https://grafana.com/static/assets/img/fav32.png",
+					Color:      "#D63232",
+				},
+			},
+		},
+	}, {
+		name: "Message is sent with two firing alerts with different GeneratorURLs",
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            APIURL,
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          "{{ .Alerts.Firing | len }} firing, {{ .Alerts.Resolved | len }} resolved",
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
+		alerts: []*types.Alert{{
+			Alert: model.Alert{
+				Labels:       model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
+				Annotations:  model.LabelSet{"ann1": "annv1"},
+				GeneratorURL: "http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test",
+			},
+		}, {
+			Alert: model.Alert{
+				Labels:       model.LabelSet{"alertname": "alert1", "lbl1": "val2"},
+				Annotations:  model.LabelSet{"ann1": "annv2"},
+				GeneratorURL: "http://localhost/alerting/f23a674b-bb6b-46df-8723-1234567test2",
+			},
+		}},
+		expectedMessage: &slackMessage{
+			Channel:   "#test",
+			Username:  "Grafana",
+			IconEmoji: ":emoji:",
+			Attachments: []attachment{
+				{
+					Title:      "2 firing, 0 resolved",
+					TitleLink:  "http://localhost/alerting/list",
+					Text:       "**Firing**\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval1\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv2\nSource: http://localhost/alerting/f23a674b-bb6b-46df-8723-1234567test2\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval2\n",
+					Fallback:   "2 firing, 0 resolved",
+					Fields:     nil,
+					Footer:     "Grafana v" + appVersion,
+					FooterIcon: "https://grafana.com/static/assets/img/fav32.png",
+					Color:      "#D63232",
+				},
+			},
+		},
+	}, {
+		name: "Message is sent with two firing alerts with the same GeneratorURLs",
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            APIURL,
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          "{{ .Alerts.Firing | len }} firing, {{ .Alerts.Resolved | len }} resolved",
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
+		alerts: []*types.Alert{{
+			Alert: model.Alert{
+				Labels:       model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
+				Annotations:  model.LabelSet{"ann1": "annv1"},
+				GeneratorURL: "http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test",
+			},
+		}, {
+			Alert: model.Alert{
+				Labels:       model.LabelSet{"alertname": "alert1", "lbl1": "val2"},
+				Annotations:  model.LabelSet{"ann1": "annv2"},
+				GeneratorURL: "http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test",
+			},
+		}},
+		expectedMessage: &slackMessage{
+			Channel:   "#test",
+			Username:  "Grafana",
+			IconEmoji: ":emoji:",
+			Attachments: []attachment{
+				{
+					Title:      "2 firing, 0 resolved",
+					TitleLink:  "http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test",
+					Text:       "**Firing**\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval1\n\nValue: [no value]\nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv2\nSource: http://localhost/alerting/f23a674b-bb6b-46df-8723-12345678test\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=lbl1%3Dval2\n",
+					Fallback:   "2 firing, 0 resolved",
+					Fields:     nil,
+					Footer:     "Grafana v" + appVersion,
+					FooterIcon: "https://grafana.com/static/assets/img/fav32.png",
+					Color:      "#D63232",
+				},
+			},
+		},
+	}, {
 		name: "Message is sent with two firing alerts",
-		settings: `{
-			"title": "{{ .Alerts.Firing | len }} firing, {{ .Alerts.Resolved | len }} resolved",
-			"icon_emoji": ":emoji:",
-			"recipient": "#test",
-			"token": "1234"
-		}`,
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            APIURL,
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          "{{ .Alerts.Firing | len }} firing, {{ .Alerts.Resolved | len }} resolved",
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -247,11 +423,20 @@ func TestSlackPostMessage(t *testing.T) {
 		},
 	}, {
 		name: "Message is sent and image is uploaded",
-		settings: `{
-			"icon_emoji": ":emoji:",
-			"recipient": "#test",
-			"token": "1234"
-		}`,
+		settings: Config{
+			EndpointURL:    APIURL,
+			URL:            APIURL,
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -286,12 +471,20 @@ func TestSlackPostMessage(t *testing.T) {
 		},
 	}, {
 		name: "Message is sent to custom URL",
-		settings: `{
-			"icon_emoji": ":emoji:",
-			"recipient": "#test",
-			"endpointUrl": "https://example.com/api",
-			"token": "1234"
-		}`,
+		settings: Config{
+			EndpointURL:    "https://example.com/api",
+			URL:            "https://example.com/api",
+			Token:          "1234",
+			Recipient:      "#test",
+			Text:           templates.DefaultMessageEmbed,
+			Title:          templates.DefaultMessageTitleEmbed,
+			Username:       "Grafana",
+			IconEmoji:      ":emoji:",
+			IconURL:        "",
+			MentionChannel: "",
+			MentionUsers:   nil,
+			MentionGroups:  nil,
+		},
 		alerts: []*types.Alert{{
 			Alert: model.Alert{
 				Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
@@ -402,7 +595,7 @@ func checkMultipart(t *testing.T, expected map[string]struct{}, r io.Reader, bou
 	assert.Equal(t, expected, visited)
 }
 
-func setupSlackForTests(t *testing.T, settings string) (*Notifier, *slackRequestRecorder, error) {
+func setupSlackForTests(t *testing.T, settings Config) (*Notifier, *slackRequestRecorder, error) {
 	tmpl := templates.ForTests(t)
 	externalURL, err := url.Parse("http://localhost")
 	require.NoError(t, err)
@@ -417,7 +610,7 @@ func setupSlackForTests(t *testing.T, settings string) (*Notifier, *slackRequest
 		}
 	})
 
-	images := &images.FakeImageStore{
+	images := &images.FakeProvider{
 		Images: []*images.Image{{
 			Token: "image-on-disk",
 			Path:  f.Name(),
@@ -428,26 +621,19 @@ func setupSlackForTests(t *testing.T, settings string) (*Notifier, *slackRequest
 	}
 	notificationService := receivers.MockNotificationService()
 
-	c := receivers.FactoryConfig{
-		Config: &receivers.NotificationChannelConfig{
-			Name:           "slack_testing",
-			Type:           "slack",
-			Settings:       json.RawMessage(settings),
-			SecureSettings: make(map[string][]byte),
+	sn := &Notifier{
+		Base: &receivers.Base{
+			Name:                  "",
+			Type:                  "",
+			UID:                   "",
+			DisableResolveMessage: false,
 		},
-		ImageStore:          images,
-		NotificationService: notificationService,
-		DecryptFunc: func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
-			return fallback
-		},
-		Template:            tmpl,
-		Logger:              &logging.FakeLogger{},
-		GrafanaBuildVersion: appVersion,
-	}
-
-	sn, err := New(c)
-	if err != nil {
-		return nil, nil, err
+		log:           &logging.FakeLogger{},
+		webhookSender: notificationService,
+		tmpl:          tmpl,
+		settings:      settings,
+		images:        images,
+		appVersion:    appVersion,
 	}
 
 	sr := &slackRequestRecorder{}
@@ -455,44 +641,12 @@ func setupSlackForTests(t *testing.T, settings string) (*Notifier, *slackRequest
 	return sn, sr, nil
 }
 
-func TestCreateSlackNotifierFromConfig(t *testing.T) {
-	tests := []struct {
-		name          string
-		settings      string
-		expectedError string
-	}{{
-		name: "Missing token",
-		settings: `{
-			"recipient": "#testchannel"
-		}`,
-		expectedError: "token must be specified when using the Slack chat API",
-	}, {
-		name: "Missing recipient",
-		settings: `{
-			"token": "1234"
-		}`,
-		expectedError: "recipient must be specified when using the Slack chat API",
-	}}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			n, _, err := setupSlackForTests(t, test.settings)
-			if test.expectedError != "" {
-				assert.Nil(t, n)
-				assert.EqualError(t, err, test.expectedError)
-			} else {
-				assert.NotNil(t, n)
-				assert.Nil(t, err)
-			}
-		})
-	}
-}
-
 func TestSendSlackRequest(t *testing.T) {
 	tests := []struct {
 		name        string
 		response    string
 		statusCode  int
+		contentType string
 		expectError bool
 	}{
 		{
@@ -502,11 +656,13 @@ func TestSendSlackRequest(t *testing.T) {
 					"error": "too_many_attachments"
 				}`,
 			statusCode:  http.StatusBadRequest,
+			contentType: "application/json",
 			expectError: true,
 		},
 		{
 			name:        "Non 200 status code, no response body",
 			statusCode:  http.StatusMovedPermanently,
+			contentType: "",
 			expectError: true,
 		},
 		{
@@ -532,36 +688,64 @@ func TestSendSlackRequest(t *testing.T) {
 				}
 			}`,
 			statusCode:  http.StatusOK,
+			contentType: "application/json",
 			expectError: false,
 		},
 		{
-			name:        "No response body",
+			name:        "No JSON response body",
 			statusCode:  http.StatusOK,
+			contentType: "application/json",
+			expectError: true,
+		},
+		{
+			name:        "No HTML response body",
+			statusCode:  http.StatusOK,
+			contentType: "text/html",
 			expectError: true,
 		},
 		{
 			name:        "Success case, unexpected response body",
 			statusCode:  http.StatusOK,
 			response:    `{"test": true}`,
+			contentType: "application/json",
 			expectError: true,
 		},
 		{
 			name:        "Success case, ok: true",
 			statusCode:  http.StatusOK,
 			response:    `{"ok": true}`,
+			contentType: "application/json",
 			expectError: false,
 		},
 		{
 			name:        "200 status code, error in body",
 			statusCode:  http.StatusOK,
 			response:    `{"ok": false, "error": "test error"}`,
+			contentType: "application/json",
 			expectError: true,
+		},
+		{
+			name:        "Success case, HTML ok",
+			statusCode:  http.StatusOK,
+			response:    "ok",
+			contentType: "text/html",
+			expectError: false,
+		},
+		{
+			name:        "Success case, text/plain ok",
+			statusCode:  http.StatusOK,
+			response:    "ok",
+			contentType: "text/plain",
+			expectError: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(tt *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if test.contentType != "" {
+					w.Header().Set("Content-Type", test.contentType)
+				}
 				w.WriteHeader(test.statusCode)
 				_, err := w.Write([]byte(test.response))
 				require.NoError(tt, err)

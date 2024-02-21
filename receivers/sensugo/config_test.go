@@ -6,12 +6,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/alerting/receivers"
-	testing2 "github.com/grafana/alerting/receivers/testing"
+	receiversTesting "github.com/grafana/alerting/receivers/testing"
 	"github.com/grafana/alerting/templates"
 )
 
-func TestValidateConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	cases := []struct {
 		name              string
 		settings          string
@@ -109,18 +108,8 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "Extracts all fields",
-			settings: `{
-				"url": "http://localhost",  
-				"entity" : "test-entity",
-				"check" : "test-check",
-				"namespace" : "test-namespace",
-				"handler" : "test-handler",
-				"message" : "test-message"
-			}`,
-			secureSettings: map[string][]byte{
-				"apikey": []byte("test-api-key"),
-			},
+			name:     "Extracts all fields",
+			settings: FullValidConfigForTesting,
 			expectedConfig: Config{
 				URL:       "http://localhost",
 				Entity:    "test-entity",
@@ -131,18 +120,25 @@ func TestValidateConfig(t *testing.T) {
 				Message:   "test-message",
 			},
 		},
+		{
+			name:           "Extracts all fields + override from encrypted",
+			settings:       FullValidConfigForTesting,
+			secureSettings: receiversTesting.ReadSecretsJSONForTesting(FullValidSecretsForTesting),
+			expectedConfig: Config{
+				URL:       "http://localhost",
+				Entity:    "test-entity",
+				Check:     "test-check",
+				Namespace: "test-namespace",
+				Handler:   "test-handler",
+				APIKey:    "test-secret-api-key",
+				Message:   "test-message",
+			},
+		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m := &receivers.NotificationChannelConfig{
-				Settings:       json.RawMessage(c.settings),
-				SecureSettings: c.secureSettings,
-			}
-			fc, err := testing2.NewFactoryConfigForValidateConfigTesting(t, m)
-			require.NoError(t, err)
-
-			actual, err := ValidateConfig(fc)
+			actual, err := NewConfig(json.RawMessage(c.settings), receiversTesting.DecryptForTesting(c.secureSettings))
 
 			if c.expectedInitError != "" {
 				require.ErrorContains(t, err, c.expectedInitError)

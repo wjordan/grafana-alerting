@@ -6,12 +6,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/alerting/receivers"
-	testing2 "github.com/grafana/alerting/receivers/testing"
+	receiversTesting "github.com/grafana/alerting/receivers/testing"
 	"github.com/grafana/alerting/templates"
 )
 
-func TestValidateConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	var cases = []struct {
 		name              string
 		settings          string
@@ -148,14 +147,8 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "Extracts all fields",
-			settings: `{
-				"gateway_id": "*1234567",
-				"recipient_id": "*1234567",
-				"api_secret": "test-secret",
-				"title" : "test-title",
-				"description": "test-description"
-			}`,
+			name:     "Extracts all fields",
+			settings: FullValidConfigForTesting,
 			expectedConfig: Config{
 				GatewayID:   "*1234567",
 				RecipientID: "*1234567",
@@ -164,17 +157,22 @@ func TestValidateConfig(t *testing.T) {
 				Description: "test-description",
 			},
 		},
+		{
+			name:           "Extracts all fields + override from secrets",
+			settings:       FullValidConfigForTesting,
+			secureSettings: receiversTesting.ReadSecretsJSONForTesting(FullValidSecretsForTesting),
+			expectedConfig: Config{
+				GatewayID:   "*1234567",
+				RecipientID: "*1234567",
+				APISecret:   "test-secret-secret",
+				Title:       "test-title",
+				Description: "test-description",
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m := &receivers.NotificationChannelConfig{
-				Settings:       json.RawMessage(c.settings),
-				SecureSettings: c.secureSettings,
-			}
-			fc, err := testing2.NewFactoryConfigForValidateConfigTesting(t, m)
-			require.NoError(t, err)
-
-			actual, err := ValidateConfig(fc)
+			actual, err := NewConfig(json.RawMessage(c.settings), receiversTesting.DecryptForTesting(c.secureSettings))
 
 			if c.expectedInitError != "" {
 				require.ErrorContains(t, err, c.expectedInitError)

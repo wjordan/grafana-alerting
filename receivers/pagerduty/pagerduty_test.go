@@ -20,7 +20,7 @@ import (
 	"github.com/grafana/alerting/templates"
 )
 
-func TestPagerdutyNotifier(t *testing.T) {
+func TestNotify(t *testing.T) {
 	tmpl := templates.ForTests(t)
 
 	externalURL, err := url.Parse("http://localhost")
@@ -31,16 +31,26 @@ func TestPagerdutyNotifier(t *testing.T) {
 	require.NoError(t, err)
 
 	cases := []struct {
-		name         string
-		settings     string
-		alerts       []*types.Alert
-		expMsg       *pagerDutyMessage
-		expInitError string
-		expMsgError  error
+		name        string
+		settings    Config
+		alerts      []*types.Alert
+		expMsg      *pagerDutyMessage
+		expMsgError error
 	}{
 		{
-			name:     "Default config with one alert",
-			settings: `{"integrationKey": "abcdefgh0123456789"}`,
+			name: "Default config with one alert",
+			settings: Config{
+				Key:       "abcdefgh0123456789",
+				Severity:  DefaultSeverity,
+				Details:   defaultDetails,
+				Class:     DefaultClass,
+				Component: "Grafana",
+				Group:     DefaultGroup,
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    hostname,
+				Client:    DefaultClient,
+				ClientURL: "{{ .ExternalURL }}",
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -74,8 +84,19 @@ func TestPagerdutyNotifier(t *testing.T) {
 			expMsgError: nil,
 		},
 		{
-			name:     "should map unknown severity",
-			settings: `{"integrationKey": "abcdefgh0123456789", "severity": "{{ .CommonLabels.severity }}"}`,
+			name: "should map unknown severity",
+			settings: Config{
+				Key:       "abcdefgh0123456789",
+				Severity:  "{{ .CommonLabels.severity }}",
+				Details:   defaultDetails,
+				Class:     DefaultClass,
+				Component: "Grafana",
+				Group:     DefaultGroup,
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    hostname,
+				Client:    DefaultClient,
+				ClientURL: "{{ .ExternalURL }}",
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -110,16 +131,18 @@ func TestPagerdutyNotifier(t *testing.T) {
 		},
 		{
 			name: "Should expand templates in fields",
-			settings: `{
-				"integrationKey": "abcdefgh0123456789", 
-				"severity" : "{{ .CommonLabels.severity }}", 
-				"class": "{{ .CommonLabels.class }}",  
-				"component": "{{ .CommonLabels.component }}", 
-				"group" : "{{ .CommonLabels.group }}", 
-				"source": "{{ .CommonLabels.source }}",
-				"client": "client-{{ .CommonLabels.source }}",
-				"client_url": "http://localhost:20200/{{ .CommonLabels.group }}"
-			}`,
+			settings: Config{
+				Key:       "abcdefgh0123456789",
+				Severity:  "{{ .CommonLabels.severity }}",
+				Details:   defaultDetails,
+				Class:     "{{ .CommonLabels.class }}",
+				Component: "{{ .CommonLabels.component }}",
+				Group:     "{{ .CommonLabels.group }}",
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    "{{ .CommonLabels.source }}",
+				Client:    "client-{{ .CommonLabels.source }}",
+				ClientURL: "http://localhost:20200/{{ .CommonLabels.group }}",
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -153,8 +176,125 @@ func TestPagerdutyNotifier(t *testing.T) {
 			expMsgError: nil,
 		},
 		{
-			name:     "Default config with one alert and custom summary",
-			settings: `{"integrationKey": "abcdefgh0123456789", "summary": "Alerts firing: {{ len .Alerts.Firing }}"}`,
+			name: "Should expand custom details",
+			settings: Config{
+				Key:      "abcdefgh0123456789",
+				Severity: "{{ .CommonLabels.severity }}",
+				Details: map[string]string{
+					"firing":       `{{ template "__text_alert_list" .Alerts.Firing }}`,
+					"resolved":     `{{ template "__text_alert_list" .Alerts.Resolved }}`,
+					"num_firing":   `{{ .Alerts.Firing | len }}`,
+					"num_resolved": `{{ .Alerts.Resolved | len }}`,
+					"test-field":   "{{ len .Alerts }}",
+					"test-field-2": "{{ len \"abcde\"}}",
+				},
+				Class:     "{{ .CommonLabels.class }}",
+				Component: "{{ .CommonLabels.component }}",
+				Group:     "{{ .CommonLabels.group }}",
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    "{{ .CommonLabels.source }}",
+				Client:    "client-{{ .CommonLabels.source }}",
+				ClientURL: "http://localhost:20200/{{ .CommonLabels.group }}",
+			},
+			alerts: []*types.Alert{
+				{
+					Alert: model.Alert{
+						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1", "severity": "critical", "class": "test-class", "group": "test-group", "component": "test-component", "source": "test-source"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
+					},
+				},
+			},
+			expMsg: &pagerDutyMessage{
+				RoutingKey:  "abcdefgh0123456789",
+				DedupKey:    "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
+				EventAction: "trigger",
+				Payload: pagerDutyPayload{
+					Summary:   "[FIRING:1]  (test-class test-component test-group val1 critical test-source)",
+					Source:    "test-source",
+					Severity:  "critical",
+					Class:     "test-class",
+					Component: "test-component",
+					Group:     "test-group",
+					CustomDetails: map[string]string{
+						"firing":       "\nValue: [no value]\nLabels:\n - alertname = alert1\n - class = test-class\n - component = test-component\n - group = test-group\n - lbl1 = val1\n - severity = critical\n - source = test-source\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matcher=alertname%3Dalert1&matcher=class%3Dtest-class&matcher=component%3Dtest-component&matcher=group%3Dtest-group&matcher=lbl1%3Dval1&matcher=severity%3Dcritical&matcher=source%3Dtest-source\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
+						"num_firing":   "1",
+						"num_resolved": "0",
+						"resolved":     "",
+						"test-field":   "1",
+						"test-field-2": "5",
+					},
+				},
+				Client:    "client-test-source",
+				ClientURL: "http://localhost:20200/test-group",
+				Links:     []pagerDutyLink{{HRef: "http://localhost", Text: "External URL"}},
+			},
+			expMsgError: nil,
+		},
+		{
+			name: "Should overwrite default custom details with user-defined ones when keys are duplicated",
+			settings: Config{
+				Key:      "abcdefgh0123456789",
+				Severity: "{{ .CommonLabels.severity }}",
+				Details: map[string]string{
+					"firing":       `{{ len "abcde" }}`,
+					"resolved":     "test value",
+					"num_firing":   "{{ .Alerts.Firing | len | eq 100 }}",
+					"num_resolved": "just another test value",
+				},
+				Class:     "{{ .CommonLabels.class }}",
+				Component: "{{ .CommonLabels.component }}",
+				Group:     "{{ .CommonLabels.group }}",
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    "{{ .CommonLabels.source }}",
+				Client:    "client-{{ .CommonLabels.source }}",
+				ClientURL: "http://localhost:20200/{{ .CommonLabels.group }}",
+			},
+			alerts: []*types.Alert{
+				{
+					Alert: model.Alert{
+						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1", "severity": "critical", "class": "test-class", "group": "test-group", "component": "test-component", "source": "test-source"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
+					},
+				},
+			},
+			expMsg: &pagerDutyMessage{
+				RoutingKey:  "abcdefgh0123456789",
+				DedupKey:    "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
+				EventAction: "trigger",
+				Payload: pagerDutyPayload{
+					Summary:   "[FIRING:1]  (test-class test-component test-group val1 critical test-source)",
+					Source:    "test-source",
+					Severity:  "critical",
+					Class:     "test-class",
+					Component: "test-component",
+					Group:     "test-group",
+					CustomDetails: map[string]string{
+						"firing":       "5",
+						"resolved":     "test value",
+						"num_firing":   "false",
+						"num_resolved": "just another test value",
+					},
+				},
+				Client:    "client-test-source",
+				ClientURL: "http://localhost:20200/test-group",
+				Links:     []pagerDutyLink{{HRef: "http://localhost", Text: "External URL"}},
+			},
+			expMsgError: nil,
+		},
+		{
+			name: "Default config with one alert and custom summary",
+			settings: Config{
+				Key:       "abcdefgh0123456789",
+				Severity:  DefaultSeverity,
+				Details:   defaultDetails,
+				Class:     DefaultClass,
+				Component: "Grafana",
+				Group:     DefaultGroup,
+				Summary:   "Alerts firing: {{ len .Alerts.Firing }}",
+				Source:    hostname,
+				Client:    DefaultClient,
+				ClientURL: "{{ .ExternalURL }}",
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -188,13 +328,18 @@ func TestPagerdutyNotifier(t *testing.T) {
 			expMsgError: nil,
 		}, {
 			name: "Custom config with multiple alerts",
-			settings: `{
-				"integrationKey": "abcdefgh0123456789",
-				"severity": "warning",
-				"class": "{{ .Status }}",
-				"component": "My Grafana",
-				"group": "my_group"
-			}`,
+			settings: Config{
+				Key:       "abcdefgh0123456789",
+				Severity:  "warning",
+				Details:   defaultDetails,
+				Class:     "{{ .Status }}",
+				Component: "My Grafana",
+				Group:     "my_group",
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    hostname,
+				Client:    DefaultClient,
+				ClientURL: "{{ .ExternalURL }}",
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -233,8 +378,19 @@ func TestPagerdutyNotifier(t *testing.T) {
 			expMsgError: nil,
 		},
 		{
-			name:     "should truncate long summary",
-			settings: fmt.Sprintf(`{"integrationKey": "abcdefgh0123456789", "summary": "%s"}`, strings.Repeat("1", rand.Intn(100)+1025)),
+			name: "should truncate long summary",
+			settings: Config{
+				Key:       "abcdefgh0123456789",
+				Severity:  DefaultSeverity,
+				Details:   defaultDetails,
+				Class:     DefaultClass,
+				Component: "Grafana",
+				Group:     DefaultGroup,
+				Summary:   strings.Repeat("1", rand.Intn(100)+1025),
+				Source:    hostname,
+				Client:    DefaultClient,
+				ClientURL: "{{ .ExternalURL }}",
+			},
 			alerts: []*types.Alert{
 				{
 					Alert: model.Alert{
@@ -268,38 +424,68 @@ func TestPagerdutyNotifier(t *testing.T) {
 			expMsgError: nil,
 		},
 		{
-			name:         "Error in initing",
-			settings:     `{}`,
-			expInitError: `could not find integration key property in settings`,
+			name: "Should remove custom details if the payload is too large",
+			settings: Config{
+				Key:      "abcdefgh0123456789",
+				Severity: DefaultSeverity,
+				Details: map[string]string{
+					"long": strings.Repeat("a", pagerDutyMaxEventSize+1),
+				},
+				Class:     DefaultClass,
+				Component: "Grafana",
+				Group:     DefaultGroup,
+				Summary:   templates.DefaultMessageTitleEmbed,
+				Source:    hostname,
+				Client:    DefaultClient,
+				ClientURL: "{{ .ExternalURL }}",
+			},
+			alerts: []*types.Alert{
+				{
+					Alert: model.Alert{
+						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
+					},
+				},
+			},
+			expMsg: &pagerDutyMessage{
+				RoutingKey:  "abcdefgh0123456789",
+				DedupKey:    "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
+				EventAction: "trigger",
+				Payload: pagerDutyPayload{
+					Summary:   "[FIRING:1]  (val1)",
+					Source:    hostname,
+					Severity:  DefaultSeverity,
+					Class:     "default",
+					Component: "Grafana",
+					Group:     "default",
+					CustomDetails: map[string]string{
+						"error": "Custom details have been removed because the original event exceeds the maximum size of 512KB",
+					},
+				},
+				Client:    "Grafana",
+				ClientURL: "http://localhost",
+				Links:     []pagerDutyLink{{HRef: "http://localhost", Text: "External URL"}},
+			},
+			expMsgError: nil,
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			settingsJSON := json.RawMessage(c.settings)
-			secureSettings := make(map[string][]byte)
 			webhookSender := receivers.MockNotificationService()
-			fc := receivers.FactoryConfig{
-				Config: &receivers.NotificationChannelConfig{
-					Name:           "pageduty_testing",
-					Type:           "pagerduty",
-					Settings:       settingsJSON,
-					SecureSettings: secureSettings,
+
+			pn := &Notifier{
+				Base: &receivers.Base{
+					Name:                  "",
+					Type:                  "",
+					UID:                   "",
+					DisableResolveMessage: false,
 				},
-				NotificationService: webhookSender,
-				DecryptFunc: func(ctx context.Context, sjd map[string][]byte, key string, fallback string) string {
-					return fallback
-				},
-				Template: tmpl,
-				Logger:   &logging.FakeLogger{},
+				log:      &logging.FakeLogger{},
+				ns:       webhookSender,
+				tmpl:     tmpl,
+				settings: c.settings,
 			}
-			pn, err := New(fc)
-			if c.expInitError != "" {
-				require.Error(t, err)
-				require.Equal(t, c.expInitError, err.Error())
-				return
-			}
-			require.NoError(t, err)
 
 			ctx := notify.WithGroupKey(context.Background(), "alertname")
 			ctx = notify.WithGroupLabels(ctx, model.LabelSet{"alertname": ""})

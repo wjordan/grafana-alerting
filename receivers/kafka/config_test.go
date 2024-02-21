@@ -6,12 +6,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/alerting/receivers"
-	testing2 "github.com/grafana/alerting/receivers/testing"
+	receiversTesting "github.com/grafana/alerting/receivers/testing"
 	"github.com/grafana/alerting/templates"
 )
 
-func TestValidateConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	cases := []struct {
 		name              string
 		settings          string
@@ -108,17 +107,8 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "Extracts all fields",
-			settings: `{
-				"kafkaRestProxy": "http://localhost/", 
-				"kafkaTopic" : "test-topic", 
-				"description" : "test-description", 
-				"details": "test-details", 
-				"username": "test-user", 
-				"password": "password", 
-				"apiVersion": "v2", 
-				"kafkaClusterId": "12345"
-			}`,
+			name:     "Extracts all fields",
+			settings: FullValidConfigForTesting,
 			expectedConfig: Config{
 				Endpoint:       "http://localhost",
 				Topic:          "test-topic",
@@ -131,24 +121,18 @@ func TestValidateConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "Should override password from secrets",
-			settings: `{
-				"kafkaRestProxy": "http://localhost/", 
-				"kafkaTopic" : "test-topic", 
-				"password": "password" 
-			}`,
-			secureSettings: map[string][]byte{
-				"password": []byte("test-password"),
-			},
+			name:           "Should override password from secrets",
+			settings:       FullValidConfigForTesting,
+			secureSettings: receiversTesting.ReadSecretsJSONForTesting(FullValidSecretsForTesting),
 			expectedConfig: Config{
 				Endpoint:       "http://localhost",
 				Topic:          "test-topic",
-				Description:    templates.DefaultMessageTitleEmbed,
-				Details:        templates.DefaultMessageEmbed,
-				Username:       "",
+				Description:    "test-description",
+				Details:        "test-details",
+				Username:       "test-user",
 				Password:       "test-password",
-				APIVersion:     apiVersionV2,
-				KafkaClusterID: "",
+				APIVersion:     "v2",
+				KafkaClusterID: "12345",
 			},
 		},
 		{
@@ -173,21 +157,14 @@ func TestValidateConfig(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m := &receivers.NotificationChannelConfig{
-				Settings:       json.RawMessage(c.settings),
-				SecureSettings: c.secureSettings,
-			}
-			fc, err := testing2.NewFactoryConfigForValidateConfigTesting(t, m)
-			require.NoError(t, err)
-
-			actual, err := ValidateConfig(fc)
+			actual, err := NewConfig(json.RawMessage(c.settings), receiversTesting.DecryptForTesting(c.secureSettings))
 
 			if c.expectedInitError != "" {
 				require.ErrorContains(t, err, c.expectedInitError)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, c.expectedConfig, *actual)
+			require.Equal(t, c.expectedConfig, actual)
 		})
 	}
 }

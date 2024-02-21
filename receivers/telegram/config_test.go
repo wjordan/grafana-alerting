@@ -6,12 +6,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/alerting/receivers"
-	testing2 "github.com/grafana/alerting/receivers/testing"
+	receiversTesting "github.com/grafana/alerting/receivers/testing"
 	"github.com/grafana/alerting/templates"
 )
 
-func TestValidateConfig(t *testing.T) {
+func TestNewConfig(t *testing.T) {
 	cases := []struct {
 		name              string
 		settings          string
@@ -44,11 +43,13 @@ func TestValidateConfig(t *testing.T) {
 			name:     "Minimal valid configuration",
 			settings: `{ "bottoken": "test-token", "chatid": "test-chat-id" }`,
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "test-chat-id",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            DefaultTelegramParseMode,
-				DisableNotifications: false,
+				BotToken:              "test-token",
+				ChatID:                "test-chat-id",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             DefaultTelegramParseMode,
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
 		},
 		{
@@ -58,11 +59,13 @@ func TestValidateConfig(t *testing.T) {
 				"bottoken": []byte("test-token"),
 			},
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "test-chat-id",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            DefaultTelegramParseMode,
-				DisableNotifications: false,
+				BotToken:              "test-token",
+				ChatID:                "test-chat-id",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             DefaultTelegramParseMode,
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
 		},
 		{
@@ -72,11 +75,13 @@ func TestValidateConfig(t *testing.T) {
 				"bottoken": []byte("test-token-key"),
 			},
 			expectedConfig: Config{
-				BotToken:             "test-token-key",
-				ChatID:               "test-chat-id",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            DefaultTelegramParseMode,
-				DisableNotifications: false,
+				BotToken:              "test-token-key",
+				ChatID:                "test-chat-id",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             DefaultTelegramParseMode,
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
 		},
 		{
@@ -91,28 +96,42 @@ func TestValidateConfig(t *testing.T) {
 				"bottoken": []byte("test-token"),
 			},
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "chat-id",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            DefaultTelegramParseMode,
-				DisableNotifications: false,
+				BotToken:              "test-token",
+				ChatID:                "chat-id",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             DefaultTelegramParseMode,
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
 		},
 		{
-			name: "Extracts all fields",
-			settings: `{
-				"bottoken" :"test-token",
-				"chatid" :"12345678",
-				"message" :"test-message",
-				"parse_mode" :"html",
-				"disable_notifications" :true
-			}`,
+			name:     "Extracts all fields",
+			settings: FullValidConfigForTesting,
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "12345678",
-				Message:              "test-message",
-				ParseMode:            "HTML",
-				DisableNotifications: true,
+				BotToken:              "test-token",
+				ChatID:                "12345678",
+				Message:               "test-message",
+				MessageThreadID:       "13579",
+				ParseMode:             "HTML",
+				DisableWebPagePreview: true,
+				ProtectContent:        true,
+				DisableNotifications:  true,
+			},
+		},
+		{
+			name:           "Extracts all fields + override from secrets",
+			settings:       FullValidConfigForTesting,
+			secureSettings: receiversTesting.ReadSecretsJSONForTesting(FullValidSecretsForTesting),
+			expectedConfig: Config{
+				BotToken:              "test-secret-token",
+				ChatID:                "12345678",
+				Message:               "test-message",
+				MessageThreadID:       "13579",
+				ParseMode:             "HTML",
+				DisableWebPagePreview: true,
+				ProtectContent:        true,
+				DisableNotifications:  true,
 			},
 		},
 		{
@@ -130,11 +149,13 @@ func TestValidateConfig(t *testing.T) {
 				"bottoken": []byte("test-token"),
 			},
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "12345678",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            "Markdown",
-				DisableNotifications: false,
+				BotToken:              "test-token",
+				ChatID:                "12345678",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             "Markdown",
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
 		},
 		{
@@ -144,11 +165,13 @@ func TestValidateConfig(t *testing.T) {
 				"bottoken": []byte("test-token"),
 			},
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "12345678",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            "MarkdownV2",
-				DisableNotifications: false,
+				BotToken:              "test-token",
+				ChatID:                "12345678",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             "MarkdownV2",
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
 		},
 		{
@@ -158,25 +181,36 @@ func TestValidateConfig(t *testing.T) {
 				"bottoken": []byte("test-token"),
 			},
 			expectedConfig: Config{
-				BotToken:             "test-token",
-				ChatID:               "12345678",
-				Message:              templates.DefaultMessageEmbed,
-				ParseMode:            "",
-				DisableNotifications: false,
+				BotToken:              "test-token",
+				ChatID:                "12345678",
+				Message:               templates.DefaultMessageEmbed,
+				ParseMode:             "",
+				DisableWebPagePreview: false,
+				ProtectContent:        false,
+				DisableNotifications:  false,
 			},
+		},
+		{
+			name:     "should fail if message_thread_id is not an int",
+			settings: `{"chatid": "12345678", "message_thread_id": "notanint"}`,
+			secureSettings: map[string][]byte{
+				"bottoken": []byte("test-token"),
+			},
+			expectedInitError: "message thread id must be an integer",
+		},
+		{
+			name:     "should fail if message_thread_id is not a valid int32",
+			settings: `{"chatid": "12345678", "message_thread_id": "21474836471"}`,
+			secureSettings: map[string][]byte{
+				"bottoken": []byte("test-token"),
+			},
+			expectedInitError: "message thread id must be an int32",
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m := &receivers.NotificationChannelConfig{
-				Settings:       json.RawMessage(c.settings),
-				SecureSettings: c.secureSettings,
-			}
-			fc, err := testing2.NewFactoryConfigForValidateConfigTesting(t, m)
-			require.NoError(t, err)
-
-			actual, err := ValidateConfig(fc)
+			actual, err := NewConfig(json.RawMessage(c.settings), receiversTesting.DecryptForTesting(c.secureSettings))
 
 			if c.expectedInitError != "" {
 				require.ErrorContains(t, err, c.expectedInitError)
